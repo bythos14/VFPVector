@@ -11,12 +11,15 @@ endif()
 project(VFPVector C)
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -Wall -O3 -nostdlib -fno-optimize-sibling-calls -e module_start")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,-q -g -ftree-vectorize -Wall -O3 -nostdlib -fno-optimize-sibling-calls -e module_start")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -fno-exceptions")
 
 
 add_executable(VFPVector
   src/vfp_vector.c
+  src/vfp_vector.h
+  src/vfp_f32_emu.c
+  src/vfp_gen.c
 )
 
 target_link_libraries(VFPVector
