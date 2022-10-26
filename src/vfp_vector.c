@@ -23,27 +23,42 @@ char *vfpOpNames[] =
         "vnmls",
         "vabs",
         "vneg",
-        "vsqrt"
-    };
+        "vsqrt"};
 
 void PrintVFPInstr(VFPInstruction *vfpInstr)
 {
     char *opName = vfpOpNames[vfpInstr->op];
-    char *opPrecision = vfpInstr->precision == VFP_OP_F32 ? "f32" : "f64";
 
     uint32_t inputFlags = vfpOpInputFlags[vfpInstr->op];
-    if (inputFlags & VFP_OP_INPUT_IMM)
-        LOG("Emulating %s.%s s%d, %f", opName, opPrecision, vfpInstr->destReg, vfpInstr->precision == VFP_OP_F32 ? (double)vfpInstr->operands.imm.f32 : vfpInstr->operands.imm.f64);
+    if (vfpInstr->precision == VFP_OP_F32)
+    {
+        if (inputFlags & VFP_OP_INPUT_IMM)
+            LOG("Emulating %s.f32 s%d, %f", opName, vfpInstr->dReg, vfpInstr->operands.imm.f32);
+        else
+        {
+            if ((inputFlags & (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn)) == (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn))
+                LOG("Emulating %s.f32 s%d, s%d, s%d", opName, vfpInstr->dReg, vfpInstr->operands.regs.n, vfpInstr->operands.regs.m);
+            else // VFP_OP_INPUT_Sm
+                LOG("Emulating %s.f32 s%d, s%d", opName, vfpInstr->dReg, vfpInstr->operands.regs.m);
+        }
+    }
     else
     {
-        if ((inputFlags & (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn)) == (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn))
-            LOG("Emulating %s.%s s%d, s%d, s%d", opName, opPrecision, vfpInstr->destReg, vfpInstr->operands.regs.sn, vfpInstr->operands.regs.sm);
-        else // VFP_OP_INPUT_Sm
-            LOG("Emulating %s.%s s%d, s%d", opName, opPrecision, vfpInstr->destReg, vfpInstr->operands.regs.sm);
+        if (inputFlags & VFP_OP_INPUT_IMM)
+            LOG("Emulating %s.f64 d%d, %f", opName, vfpInstr->dReg, vfpInstr->operands.imm.f64);
+        else
+        {
+            if ((inputFlags & (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn)) == (VFP_OP_INPUT_Sm | VFP_OP_INPUT_Sn))
+                LOG("Emulating %s.f64 d%d, d%d, d%d", opName, vfpInstr->dReg, vfpInstr->operands.regs.n, vfpInstr->operands.regs.m);
+            else // VFP_OP_INPUT_Sm
+                LOG("Emulating %s.f64 d%d, d%d", opName, vfpInstr->dReg, vfpInstr->operands.regs.m);
+        }
     }
 }
 #else
-void PrintVFPInstr(VFPInstruction *vfpInstr) { }
+void PrintVFPInstr(VFPInstruction *vfpInstr)
+{
+}
 #endif
 
 uint32_t vfpOpInputFlags[VFP_OP_Count] =
@@ -64,53 +79,69 @@ uint32_t vfpOpInputFlags[VFP_OP_Count] =
         VFP_OP_INPUT_Sm                                      // VFP_OP_VSQRT
 };
 
-void DecodeArmVFPInstrRegs(uint32_t rawInstr, VFPInstruction *vfpInstr)
+void DecodeVFPInstrRegs(uint32_t rawInstr, VFPInstruction *vfpInstr)
 {
-    vfpInstr->precision = rawInstr & 0x00000100;
-
     uint32_t inputFlags = vfpOpInputFlags[vfpInstr->op];
 
-    if (vfpInstr->precision == VFP_OP_F32)
+    if ((rawInstr & 0x00000100) == 0) // sz bit
     {
-        vfpInstr->destReg = ((rawInstr & 0x0000F000) >> 11) | ((rawInstr & 0x00400000) >> 22);
-        if (inputFlags & VFP_OP_INPUT_Sn)
-            vfpInstr->operands.regs.sn = ((rawInstr & 0x000F0000) >> 15) | ((rawInstr & 0x00000080) >> 7);
-        if (inputFlags & VFP_OP_INPUT_Sm)
-            vfpInstr->operands.regs.sm = ((rawInstr & 0x0000000F) << 1) | ((rawInstr & 0x00000020) >> 5);
-        if (inputFlags & VFP_OP_INPUT_IMM)
+        vfpInstr->precision = VFP_OP_F32;
+        vfpInstr->dReg = ((rawInstr & 0x0000F000) >> 11) | ((rawInstr & 0x00400000) >> 22);
+        if ((inputFlags & VFP_OP_INPUT_IMM) == 0)
         {
+            if (inputFlags & VFP_OP_INPUT_Sn)
+                vfpInstr->operands.regs.n = ((rawInstr & 0x000F0000) >> 15) | ((rawInstr & 0x00000080) >> 7);
+            vfpInstr->operands.regs.m = ((rawInstr & 0x0000000F) << 1) | ((rawInstr & 0x00000020) >> 5);
+        }
+        else
+        {
+            union
+            {
+                float f32;
+                uint32_t u32;
+            } rawFloat;
             uint32_t opc2 = (rawInstr & 0x000F0000) >> 16;
             uint32_t opc4 = rawInstr & 0x0000000F;
-            uint32_t rawFloat = ((opc2 & 0x8) << 28) |                                // Sign bit
-                                (((opc2 & 0x3) | (opc2 & 0x4 ? 0x7C : 0x80)) << 23) | // Exponent
-                                (opc4 << 19);                                         // Mantissa
+            rawFloat.u32 = ((opc2 & 0x8) << 28) |                                // Sign bit
+                           (((opc2 & 0x3) | (opc2 & 0x4 ? 0x7C : 0x80)) << 23) | // Exponent
+                           (opc4 << 19);                                         // Mantissa
 
-            vfpInstr->operands.imm.f32 = *(float *)&rawFloat;
+            vfpInstr->operands.imm.f32 = rawFloat.f32;
         }
     }
     else
     {
-        vfpInstr->destReg = ((rawInstr & 0x00400000) >> 18) | ((rawInstr & 0x0000F000) >> 12);
-        if (inputFlags & VFP_OP_INPUT_Sn)
-            vfpInstr->operands.regs.sn = ((rawInstr & 0x00000080) >> 3) | ((rawInstr & 0x000F0000) >> 16);
-        if (inputFlags & VFP_OP_INPUT_Sm)
-            vfpInstr->operands.regs.sm = ((rawInstr & 0x00000020) >> 1) | (rawInstr & 0x0000000F);
-        if (inputFlags & VFP_OP_INPUT_IMM)
+        vfpInstr->precision = VFP_OP_F64;
+        vfpInstr->dReg = ((rawInstr & 0x00400000) >> 18) | ((rawInstr & 0x0000F000) >> 12);
+        if ((inputFlags & VFP_OP_INPUT_IMM) == 0)
         {
+            if (inputFlags & VFP_OP_INPUT_Sn)
+                vfpInstr->operands.regs.n = ((rawInstr & 0x00000080) >> 3) | ((rawInstr & 0x000F0000) >> 16);
+            vfpInstr->operands.regs.m = ((rawInstr & 0x00000020) >> 1) | (rawInstr & 0x0000000F);
+        }
+        else
+        {
+            union
+            {
+                double f64;
+                uint64_t u64;
+            } rawFloat;
             uint64_t opc2 = (rawInstr & 0x000F0000) >> 16;
             uint64_t opc4 = rawInstr & 0x0000000F;
-            uint64_t rawFloat = ((opc2 & 0x8) << 48) |                                  // Sign bit
-                                (((opc2 & 0x3) | (opc2 & 0x4 ? 0x3FC : 0x400)) << 52) | // Exponent
-                                (opc4 << 48);                                           // Mantissa
+            rawFloat.u64 = ((opc2 & 0x8) << 48) |                                  // Sign bit
+                           (((opc2 & 0x3) | (opc2 & 0x4 ? 0x3FC : 0x400)) << 52) | // Exponent
+                           (opc4 << 48);                                           // Mantissa
 
-            vfpInstr->operands.imm.f64 = *(double *)&rawFloat;
+            vfpInstr->operands.imm.f64 = rawFloat.f64;
         }
     }
 }
 
-int DecodeArmVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr)
+int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thumb)
 {
     int opc1, opc2, opc3;
+    if (thumb)
+        rawInstr = ((rawInstr & 0xFFFF) << 16) | ((rawInstr & 0xFFFF0000) >> 16);
 
     if ((rawInstr & 0x0F000E10) != 0x0E000A00) // Checking for invalid bits
         return 0;
@@ -162,7 +193,7 @@ int DecodeArmVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr)
         break;
     }
 
-    DecodeArmVFPInstrRegs(rawInstr, vfpInstr);
+    DecodeVFPInstrRegs(rawInstr, vfpInstr);
 
     return 1;
 }
@@ -186,23 +217,9 @@ void UndefInstrHandler(KuKernelAbortContext *abortContext)
         return;
     }
 
-    if ((abortContext->SPSR & 0x20) != 0) // Thumb variants currently unsupported
-    {
-        LOG("Thumb not supported");
-        nextHandler(abortContext);
-        return;
-    }
-
-    if (DecodeArmVFPInstr(*(uint32_t *)(abortContext->pc), &instr) == 0)
+    if (DecodeVFPInstr(*(uint32_t *)(abortContext->pc), &instr, abortContext->SPSR & 0x20) == 0)
     {
         LOG("Failed to decode instruction (0x%08X)", *(uint32_t *)(abortContext->pc));
-        nextHandler(abortContext);
-        return;
-    }
-
-    if (instr.precision == VFP_OP_F64) // Double precision emulation not supported for now
-    {
-        LOG("Double precision emulation not supported");
         nextHandler(abortContext);
         return;
     }
@@ -216,7 +233,10 @@ void UndefInstrHandler(KuKernelAbortContext *abortContext)
     instr.vectorLength = ((abortContext->FPSCR & 0x70000) >> 16) + 1;
     instr.vectorStride = ((abortContext->FPSCR & 0x300000) >> 20) + 1;
 
-    EmulateF32VFPOp(&instr, abortContext);
+    if (instr.precision == VFP_OP_F32)
+        EmulateF32VFPOp(&instr, abortContext);
+    else
+        EmulateF64VFPOp(&instr, abortContext);
 
     abortContext->FPEXC &= ~0x20000000;
     abortContext->pc += 4;

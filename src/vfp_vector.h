@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <kubridge.h>
+#include <psp2/kernel/clib.h>
 
 #ifndef NDEBUG
 #define LOG(msg, ...) sceClibPrintf("%s:%d:" msg "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
@@ -49,13 +50,13 @@ typedef struct VFPInstruction
 {
     uint8_t op;
     uint8_t precision;
-    uint16_t destReg; // Sd / Dd
+    uint16_t dReg; // Sd / Dd
     union 
     {
         struct
         {
-            uint16_t sn; // Sn / Dn
-            uint16_t sm; // Sm / Dm
+            uint16_t n; // Sn / Dn
+            uint16_t m; // Sm / Dm
         } regs;
 
         union
@@ -69,11 +70,9 @@ typedef struct VFPInstruction
     uint16_t vectorStride;
 } VFPInstruction;
 
-typedef void (*VFPOpF32SwImpl)(VFPInstruction *instr, int vectorLength, float *dest, float *sn, float *sm);
-typedef void (*VFPOpF64SwImpl)(VFPInstruction *instr, double *dest, double *sn, double *sm);
-
 extern uint32_t vfpOpInputFlags[VFP_OP_Count];
 
 void EmulateF32VFPOp(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+void EmulateF64VFPOp(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
 
 #endif

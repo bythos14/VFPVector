@@ -2,158 +2,133 @@
 
 #include <stdbool.h>
 
-asm(
-    R"(.text
-.thumb
-.fpu vfpv3
-
-/**
- * VFP Op F32 emulation
- * Inputs:
- * r0 - Vector length
- * 
- * s8 - s15: destination vector
- * s16 - s23: source 1 vector
- * s24 - s31: source 2 vector
- */
-
-/**
- * Moves sm to sd
- * 
- */
-VMOV:
-    vmov.f32 s8, s24
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s9, s25
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s10, s26
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s11, s27
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s12, s28
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s13, s29
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s14, s30
-    sub r0, #0x1
-    cbz r0, VMOV_exit
-    vmov.f32 s15, s31
-VMOV_exit:
-    bx lr
-/**
- * Inputs:
- * r0 - VFPInstruction pointer
- * r1 - Sd vector pointer
- * r2 - Sn vector pointer
- * r3 - Sm vector pointer
- */
-ExecuteVFPOp:
-    push {r4, lr}
-    mov r4, r1
-    vldmia r1, {d4 - d7}
-    vldmia r2, {d8 - d11}
-    vldmia r3, {d12 - d15}
-    ldrb r1, [r0, #0x0]
-    ldr r2, =vfpOpFns
-    ldr r3, [r2, r1, lsl #0x2]
-    ldrh r0, [r0, #0x10]
-    orr r3, #0x1 // Add thumb bit
-    blx r3
-    vstmia r4, {d4 - d7}
-    pop {r4, pc}
-)");
-
-void VMOV();
-
-typedef void (*VfpOpFn)();
-VfpOpFn vfpOpFns[VFP_OP_Count] = 
+static inline void VMOV_F32(float *sd, float sn, float sm)
 {
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-    VMOV,
-};
-
-void ExecuteVFPOp(VFPInstruction *instr, float *sdBuffer, float *snBuffer, float *smBuffer);
-
-static inline void CopySourceVector(VFPInstruction *vfpInstr, float *registerBuffer, int registerIndex, float *vectorBuffer)
-{
-    int regBufferOffset = registerIndex;
-    int regBankBase = registerIndex & 0x18;
-    for (int i = 0; i < vfpInstr->vectorLength; i++)
-    {
-        vectorBuffer[i] = registerBuffer[regBufferOffset];
-
-        regBufferOffset += vfpInstr->vectorStride;
-
-        regBufferOffset = (regBufferOffset & 0x7) | regBankBase; // Ensure it wraps around in the regbank (not sure if this is correct).
-    }
+    *sd = sm;
 }
-static inline void FillVector(float *vectorBuffer, float scalar)
+static inline void VADD_F32(float *sd, float sn, float sm)
 {
-    for (int i = 0; i < 8; i++)
-    {
-        vectorBuffer[i] = scalar;
-    }
+    *sd = sn + sm;
 }
-
-static inline void CopyDestVector(VFPInstruction *vfpInstr, float *vectorBuffer, float *registerBuffer)
+static inline void VSUB_F32(float *sd, float sn, float sm)
 {
-    int regBufferOffset = vfpInstr->destReg;
-    int regBankBase = vfpInstr->destReg & 0x18;
-    for (int i = 0; i < vfpInstr->vectorLength; i++)
-    {
-        registerBuffer[regBufferOffset] = vectorBuffer[i];
-
-        regBufferOffset += vfpInstr->vectorStride;
-
-        regBufferOffset = (regBufferOffset & 0x7) | regBankBase; // Ensure it wraps around in the regbank (not sure if this is correct).
-    }
+    *sd = sn - sm;
 }
+static inline void VDIV_F32(float *sd, float sn, float sm)
+{
+    *sd = sn / sm;
+}
+static inline void VMUL_F32(float *sd, float sn, float sm)
+{
+    *sd = sn * sm;
+}
+static inline void VNMUL_F32(float *sd, float sn, float sm)
+{
+    *sd = -(sn * sm);
+}
+static inline void VMLA_F32(float *sd, float sn, float sm)
+{
+    *sd = (sn * sm) + *sd;
+}
+static inline void VNMLA_F32(float *sd, float sn, float sm)
+{
+    *sd = -((sn * sm) + *sd);
+}
+static inline void VMLS_F32(float *sd, float sn, float sm)
+{
+    *sd = *sd - (sn * sm);
+}
+static inline void VNMLS_F32(float *sd, float sn, float sm)
+{
+    *sd = -(*sd - (sn * sm));
+}
+static inline void VABS_F32(float *sd, float sn, float sm)
+{
+    union
+    {
+        float f32;
+        uint32_t u32;
+    } tmp;
 
+    tmp.f32 = sm;
+    tmp.u32 &= ~(1 << 31);
+    *sd = tmp.f32;
+}
+static inline void VNEG_F32(float *sd, float sn, float sm)
+{
+    *sd = -sm;
+}
+static inline void VSQRT_F32(float *sd, float sn, float sm)
+{
+    __asm__ volatile(
+        "vmov s1, %1\n"
+        "vsqrt.f32 s0, s1\n"
+        "vstr s0, [%0]\n" ::"r"(sd),
+        "r"(sm));
+}
 
 void EmulateF32VFPOp(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext)
 {
-    float snBuffer[8], smBuffer[8], sdBuffer[8];
     float *registerBuffer = (float *)(&abortContext->vfpRegisters[0]);
-    uint32_t inputFlags = vfpOpInputFlags[vfpInstr->op];
+    const float imm = vfpInstr->operands.imm.f32;
 
-    if (inputFlags & VFP_OP_INPUT_Sd)
-        CopySourceVector(vfpInstr, registerBuffer, vfpInstr->destReg, sdBuffer);
-
-    if ((inputFlags & VFP_OP_INPUT_IMM) == 0)
+    int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;
+    int dRegBank = vfpInstr->dReg & 0x18;
+    int nRegBank = vfpInstr->operands.regs.n & 0x18;
+    int mRegBank = vfpInstr->operands.regs.m & 0x18;
+    for (int i = 0; i < vfpInstr->vectorLength; i++)
     {
-        if (inputFlags & VFP_OP_INPUT_Sn)
-            CopySourceVector(vfpInstr, registerBuffer, vfpInstr->operands.regs.sn, snBuffer);
-
-        if (inputFlags & VFP_OP_INPUT_Sm)
+        float *sd = &registerBuffer[dReg];
+        float sn = registerBuffer[nReg];
+        float sm = registerBuffer[mReg];
+        switch (vfpInstr->op)
         {
-            if (vfpInstr->operands.regs.sm > 7)
-                CopySourceVector(vfpInstr, registerBuffer, vfpInstr->operands.regs.sm, smBuffer);
-            else
-                FillVector(smBuffer, registerBuffer[vfpInstr->operands.regs.sm]);
+        case VFP_OP_VMOV:
+            VMOV_F32(sd, 0, sm);
+            break;
+        case VFP_OP_VMOV_IMM:
+            VMOV_F32(sd, 0, imm);
+            break;
+        case VFP_OP_VADD:
+            VADD_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VSUB:
+            VSUB_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VDIV:
+            VDIV_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VMUL:
+            VMUL_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VNMUL:
+            VNMUL_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VMLA:
+            VMLA_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VNMLA:
+            VNMLA_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VMLS:
+            VMLS_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VNMLS:
+            VNMLS_F32(sd, sn, sm);
+            break;
+        case VFP_OP_VABS:
+            VABS_F32(sd, 0, sm);
+            break;
+        case VFP_OP_VNEG:
+            VNEG_F32(sd, 0, sm);
+            break;
+        case VFP_OP_VSQRT:
+            VSQRT_F32(sd, 0, sm);
+            break;
         }
+
+        dReg = ((dReg + vfpInstr->vectorStride) & 0x7) | dRegBank; // Ensure they wrap around in the regbank (not sure if this is correct).
+        nReg = ((nReg + vfpInstr->vectorStride) & 0x7) | nRegBank;
+        mReg = ((mReg + vfpInstr->vectorStride) & 0x7) | mRegBank;
     }
-    else
-        FillVector(smBuffer, vfpInstr->operands.imm.f32);
-
-    ExecuteVFPOp(vfpInstr, sdBuffer, snBuffer, smBuffer);
-
-    CopyDestVector(vfpInstr, sdBuffer, registerBuffer);
 }
