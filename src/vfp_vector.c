@@ -8,7 +8,7 @@ KuKernelAbortHandler nextHandler;
 // All possible VFP vector operations
 
 #ifndef NDEBUG
-char *vfpOpNames[] =
+static char *vfpOpNames[] =
     {
         "vmov",
         "vmov",
@@ -25,7 +25,7 @@ char *vfpOpNames[] =
         "vneg",
         "vsqrt"};
 
-void PrintVFPInstr(VFPInstruction *vfpInstr)
+static void PrintVFPInstr(VFPInstruction *vfpInstr)
 {
     char *opName = vfpOpNames[vfpInstr->op];
 
@@ -56,7 +56,7 @@ void PrintVFPInstr(VFPInstruction *vfpInstr)
     }
 }
 #else
-void PrintVFPInstr(VFPInstruction *vfpInstr)
+static void PrintVFPInstr(VFPInstruction *vfpInstr)
 {
 }
 #endif
@@ -79,7 +79,7 @@ uint32_t vfpOpInputFlags[VFP_OP_Count] =
         VFP_OP_INPUT_Sm                                      // VFP_OP_VSQRT
 };
 
-void DecodeVFPInstrRegs(uint32_t rawInstr, VFPInstruction *vfpInstr)
+static void DecodeVFPInstrRegs(uint32_t rawInstr, VFPInstruction *vfpInstr)
 {
     uint32_t inputFlags = vfpOpInputFlags[vfpInstr->op];
 
@@ -137,7 +137,7 @@ void DecodeVFPInstrRegs(uint32_t rawInstr, VFPInstruction *vfpInstr)
     }
 }
 
-int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thumb)
+static int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thumb)
 {
     int opc1, opc2, opc3;
     if (thumb)
@@ -147,6 +147,7 @@ int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thumb)
         return 0;
 
     sceClibMemset(vfpInstr, 0, sizeof(VFPInstruction));
+    vfpInstr->cond = rawInstr >> 28;
 
     opc1 = (rawInstr & 0x00B00000) >> 20; // Bits 23, 21 - 20
     opc2 = (rawInstr & 0x000F0000) >> 16; // Bits 17 - 16
@@ -228,18 +229,22 @@ void UndefInstrHandler(KuKernelAbortContext *abortContext)
                      : "=r"(FPSCR));
     FPSCR &= ~0x370000;
     __asm__ volatile("vmsr FPSCR, %0" ::"r"(FPSCR));
-
-    PrintVFPInstr(&instr);
     instr.vectorLength = ((abortContext->FPSCR & 0x70000) >> 16) + 1;
     instr.vectorStride = ((abortContext->FPSCR & 0x300000) >> 20) + 1;
 
-    if (instr.precision == VFP_OP_F32)
-        EmulateF32VFPOp(&instr, abortContext);
-    else
-        EmulateF64VFPOp(&instr, abortContext);
+    if (GenerateVFPEmulation(&instr, abortContext) == 0)
+    {
+        PrintVFPInstr(&instr);
+
+        if (instr.precision == VFP_OP_F32)
+            EmulateF32VFPInstr(&instr, abortContext);
+        else
+            EmulateF64VFPInstr(&instr, abortContext);
+
+        abortContext->pc += 4;
+    }
 
     abortContext->FPEXC &= ~0x20000000;
-    abortContext->pc += 4;
 
     return;
 }
@@ -247,11 +252,4 @@ void UndefInstrHandler(KuKernelAbortContext *abortContext)
 void RegisterHandler()
 {
     kuKernelRegisterAbortHandler(UndefInstrHandler, &nextHandler, NULL);
-}
-
-int module_start(void *argp, SceSize argSize)
-{
-    RegisterHandler();
-
-    return 0;
 }

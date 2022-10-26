@@ -11,6 +11,8 @@
 #define LOG(msg, ...)
 #endif
 
+// #define NO_VFP_GEN // Uncomment to disable VFP code gen
+
 // All possible VFP vector operations
 enum VFPOp
 {
@@ -49,8 +51,9 @@ enum VFPOpInputFlags
 typedef struct VFPInstruction
 {
     uint8_t op;
+    uint8_t cond;
     uint8_t precision;
-    uint16_t dReg; // Sd / Dd
+    uint8_t dReg; // Sd / Dd
     union 
     {
         struct
@@ -72,7 +75,11 @@ typedef struct VFPInstruction
 
 extern uint32_t vfpOpInputFlags[VFP_OP_Count];
 
-void EmulateF32VFPOp(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
-void EmulateF64VFPOp(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+void EmulateF32VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+
+int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+
+void RegisterHandler();
 
 #endif

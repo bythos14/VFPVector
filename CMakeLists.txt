@@ -21,6 +21,7 @@ add_executable(VFPVector
   src/vfp_f32_emu.c
   src/vfp_f64_emu.c
   src/vfp_gen.c
+  src/main.c
 )
 
 target_link_libraries(VFPVector
