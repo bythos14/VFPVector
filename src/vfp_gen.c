@@ -125,9 +125,8 @@ uint32_t vfpPatchEpilogue[] = {
 static void GenerateF32VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer)
 {
     int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;
-    int dRegBank = vfpInstr->dReg & 0x18;
-    int nRegBank = vfpInstr->operands.regs.n & 0x18;
-    int mRegBank = vfpInstr->operands.regs.m & 0x18;
+    int dRegBank = vfpInstr->dReg & 0x18, nRegBank = nReg & 0x18, mRegBank = mReg & 0x18;
+    int mStride = mRegBank == 0 ? 0 : vfpInstr->vectorStride; // m may be a scalar register
     uint32_t *writeAddr = *instrBuffer;
     for (int i = 0; i < vfpInstr->vectorLength; i++)
     {
@@ -135,7 +134,7 @@ static void GenerateF32VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer
 
         dReg = ((dReg + vfpInstr->vectorStride) & 0x7) | dRegBank; // Ensure they wrap around in the regbank (not sure if this is correct).
         nReg = ((nReg + vfpInstr->vectorStride) & 0x7) | nRegBank;
-        mReg = ((mReg + vfpInstr->vectorStride) & 0x7) | mRegBank;
+        mReg = ((mReg + mStride) & 0x7) | mRegBank;
     }
     *instrBuffer = writeAddr;
 }
@@ -143,9 +142,8 @@ static void GenerateF32VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer
 static void GenerateF64VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer)
 {
     int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;
-    int dRegBank = vfpInstr->dReg & 0x1C;
-    int nRegBank = vfpInstr->operands.regs.n & 0x1C;
-    int mRegBank = vfpInstr->operands.regs.m & 0x1C;
+    int dRegBank = dReg & 0x1C, nRegBank = nReg & 0x1C, mRegBank = mReg & 0x1C;
+    int mStride = (mRegBank == 0) || (mRegBank == 0x14) ? 0 : vfpInstr->vectorStride; // m may be a scalar register
     uint32_t *writeAddr = *instrBuffer;
     for (int i = 0; i < vfpInstr->vectorLength; i++)
     {
@@ -153,7 +151,7 @@ static void GenerateF64VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer
 
         dReg = ((dReg + vfpInstr->vectorStride) & 0x3) | dRegBank; // Ensure they wrap around in the regbank (not sure if this is correct).
         nReg = ((nReg + vfpInstr->vectorStride) & 0x3) | nRegBank;
-        mReg = ((mReg + vfpInstr->vectorStride) & 0x3) | mRegBank;
+        mReg = ((mReg + mStride) & 0x3) | mRegBank;
     }
 
     *instrBuffer = writeAddr;

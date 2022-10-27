@@ -73,9 +73,8 @@ void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortCon
     const double imm = vfpInstr->operands.imm.f64;
 
     int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;
-    int dRegBank = vfpInstr->dReg & 0x1C;
-    int nRegBank = vfpInstr->operands.regs.n & 0x1C;
-    int mRegBank = vfpInstr->operands.regs.m & 0x1C;
+    int dRegBank = dReg & 0x1C, nRegBank = nReg & 0x1C, mRegBank = mReg & 0x1C;
+    int mStride = (mRegBank == 0) || (mRegBank == 0x14) ? 0 : vfpInstr->vectorStride; // m may be a scalar register
     for (int i = 0; i < vfpInstr->vectorLength; i++)
     {
         double *dd = &registerBuffer[dReg];
@@ -129,6 +128,6 @@ void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortCon
 
         dReg = ((dReg + vfpInstr->vectorStride) & 0x3) | dRegBank; // Ensure they wrap around in the regbank (not sure if this is correct).
         nReg = ((nReg + vfpInstr->vectorStride) & 0x3) | nRegBank;
-        mReg = ((mReg + vfpInstr->vectorStride) & 0x3) | mRegBank;
+        mReg = ((mReg + mStride) & 0x3) | mRegBank;
     }
 }
