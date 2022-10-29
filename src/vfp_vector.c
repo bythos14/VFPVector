@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <psp2/kernel/clib.h>
 
-KuKernelAbortHandler nextHandler;
+KuKernelExceptionHandler nextHandler;
 
 // All possible VFP vector operations
 
@@ -199,29 +199,22 @@ static int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thum
     return 1;
 }
 
-void UndefInstrHandler(KuKernelAbortContext *abortContext)
+void UndefInstrHandler(KuKernelExceptionContext *exceptionContext)
 {
     VFPInstruction instr;
     uint32_t FPSCR;
 
-    if (abortContext->abortType != KU_KERNEL_ABORT_TYPE_UNDEF_INSTR)
-    {
-        LOG("Not an undefined instruction exception");
-        nextHandler(abortContext);
-        return;
-    }
-
-    if ((abortContext->FPEXC & 0x20000000) == 0) // Ignore if not a VFP exception
+    if ((exceptionContext->FPEXC & 0x20000000) == 0) // Ignore if not a VFP exception
     {
         LOG("Not a VFP vector exception");
-        nextHandler(abortContext);
+        nextHandler(exceptionContext);
         return;
     }
 
-    if (DecodeVFPInstr(*(uint32_t *)(abortContext->pc), &instr, abortContext->SPSR & 0x20) == 0)
+    if (DecodeVFPInstr(*(uint32_t *)(exceptionContext->pc), &instr, exceptionContext->SPSR & 0x20) == 0)
     {
-        LOG("Failed to decode instruction (0x%08X)", *(uint32_t *)(abortContext->pc));
-        nextHandler(abortContext);
+        LOG("Failed to decode instruction (0x%08X)", *(uint32_t *)(exceptionContext->pc));
+        nextHandler(exceptionContext);
         return;
     }
 
@@ -229,27 +222,27 @@ void UndefInstrHandler(KuKernelAbortContext *abortContext)
                      : "=r"(FPSCR));
     FPSCR &= ~0x370000;
     __asm__ volatile("vmsr FPSCR, %0" ::"r"(FPSCR));
-    instr.vectorLength = ((abortContext->FPSCR & 0x70000) >> 16) + 1;
-    instr.vectorStride = ((abortContext->FPSCR & 0x300000) >> 20) + 1;
+    instr.vectorLength = ((exceptionContext->FPSCR & 0x70000) >> 16) + 1;
+    instr.vectorStride = ((exceptionContext->FPSCR & 0x300000) >> 20) + 1;
 
-    if (GenerateVFPEmulation(&instr, abortContext) == 0)
+    if (GenerateVFPEmulation(&instr, exceptionContext) == 0)
     {
         PrintVFPInstr(&instr);
 
         if (instr.precision == VFP_OP_F32)
-            EmulateF32VFPInstr(&instr, abortContext);
+            EmulateF32VFPInstr(&instr, exceptionContext);
         else
-            EmulateF64VFPInstr(&instr, abortContext);
+            EmulateF64VFPInstr(&instr, exceptionContext);
 
-        abortContext->pc += 4;
+        exceptionContext->pc += 4;
     }
 
-    abortContext->FPEXC &= ~0x20000000;
+    exceptionContext->FPEXC &= ~0x20000000;
 
     return;
 }
 
 void RegisterHandler()
 {
-    kuKernelRegisterAbortHandler(UndefInstrHandler, &nextHandler, NULL);
+    kuKernelRegisterExceptionHandler(KU_KERNEL_EXCEPTION_TYPE_UNDEFINED_INSTRUCTION, UndefInstrHandler, &nextHandler, NULL);
 }

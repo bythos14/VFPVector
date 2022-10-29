@@ -67,9 +67,9 @@ static inline void VSQRT_F32(float *sd, float sn, float sm)
         "r"(sm));
 }
 
-void EmulateF32VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext)
+void EmulateF32VFPInstr(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext)
 {
-    float *registerBuffer = (float *)(&abortContext->vfpRegisters[0]);
+    float *registerBuffer = (float *)(&exceptionContext->vfpRegisters[0]);
     const float imm = vfpInstr->operands.imm.f32;
 
     int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;

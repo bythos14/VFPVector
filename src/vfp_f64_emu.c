@@ -67,9 +67,9 @@ static inline void VSQRT_F64(double *dd, double dn, double dm)
         "r"(&dm));
 }
 
-void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext)
+void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext)
 {
-    double *registerBuffer = (double *)(&abortContext->vfpRegisters[0]);
+    double *registerBuffer = (double *)(&exceptionContext->vfpRegisters[0]);
     const double imm = vfpInstr->operands.imm.f64;
 
     int dReg = vfpInstr->dReg, nReg = vfpInstr->operands.regs.n, mReg = vfpInstr->operands.regs.m;

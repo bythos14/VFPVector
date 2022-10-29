@@ -75,10 +75,10 @@ typedef struct VFPInstruction
 
 extern uint32_t vfpOpInputFlags[VFP_OP_Count];
 
-void EmulateF32VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
-void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+void EmulateF32VFPInstr(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext);
+void EmulateF64VFPInstr(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext);
 
-int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext);
+int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext);
 
 void RegisterHandler();
 

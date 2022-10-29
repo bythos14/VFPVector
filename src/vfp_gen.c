@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 #if defined(NO_VFP_GEN)
-int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext)
+int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext)
 {
     return 0;
 }
@@ -159,30 +159,29 @@ static void GenerateF64VFPInstr(VFPInstruction *vfpInstr, uint32_t **instrBuffer
 
 typedef struct so_module so_module;
 void *so_alloc_arena(so_module *mod, uintptr_t range, uintptr_t dst, size_t sz); // Defined in so_util
+so_module *so_find_module_by_addr(uintptr_t addr); // Defined in so_util
 
-so_module *so_find_module_by_addr(uintptr_t addr); // Pls implement me
-
-int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelAbortContext *abortContext)
+int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelExceptionContext *exceptionContext)
 {
     size_t patchSize = sizeof(vfpPatchPrologue) + sizeof(vfpPatchEpilogue) + (sizeof(uint32_t) * vfpInstr->vectorLength);
     void *patchBase;
     uint32_t patchBuffer[32];
     uint32_t *instrBuffer = &patchBuffer[0];
 
-    if (abortContext->SPSR & 0x20)
+    if (exceptionContext->SPSR & 0x20)
     {
         LOG("Thumb is not supported");
         return 0;
     }
 
-    so_module *mod = so_find_module_by_addr(abortContext->pc);
+    so_module *mod = so_find_module_by_addr(exceptionContext->pc);
     if (mod == NULL)
     {
         LOG("No SO module found for PC");
         return 0;
     }
 
-    patchBase = so_alloc_arena(mod, 0x1FFFFFF, abortContext->pc, patchSize);
+    patchBase = so_alloc_arena(mod, 0xFFFFFF, exceptionContext->pc, patchSize);
     if (patchBase == NULL)
         return 0;
 
@@ -197,14 +196,14 @@ int GenerateVFPEmulation(VFPInstruction *vfpInstr, KuKernelAbortContext *abortCo
     sceClibMemcpy(&instrBuffer[0], &vfpPatchEpilogue, sizeof(vfpPatchEpilogue));
     instrBuffer += (sizeof(vfpPatchEpilogue) / sizeof(uint32_t)) - 1;
 
-    *instrBuffer++ = abortContext->pc + 4;
+    *instrBuffer++ = exceptionContext->pc + 4;
 
-    uint32_t branch = BRANCH(patchBase, abortContext->pc, vfpInstr->cond);
+    uint32_t branch = BRANCH(patchBase, exceptionContext->pc, vfpInstr->cond);
 
     kuKernelCpuUnrestrictedMemcpy(patchBase, &patchBuffer[0], patchSize);
     kuKernelFlushCaches(patchBase, patchSize);
-    kuKernelCpuUnrestrictedMemcpy((uint32_t *)abortContext->pc, &branch, sizeof(branch));
-    kuKernelFlushCaches((uint32_t *)abortContext->pc, sizeof(branch));
+    kuKernelCpuUnrestrictedMemcpy((uint32_t *)exceptionContext->pc, &branch, sizeof(branch));
+    kuKernelFlushCaches((uint32_t *)exceptionContext->pc, sizeof(branch));
 
     return 1;
 }
