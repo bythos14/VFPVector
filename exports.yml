@@ -1,8 +1,0 @@
-VFPVector:
-  attributes: 0x0
-  version:
-    major: 0x1
-    minor: 0x1
-  nid: 0x3a10525c
-  main:
-    start: module_start
