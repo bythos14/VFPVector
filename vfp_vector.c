@@ -151,7 +151,7 @@ static int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thum
 
     opc1 = (rawInstr & 0x00B00000) >> 20; // Bits 23, 21 - 20
     opc2 = (rawInstr & 0x000F0000) >> 16; // Bits 17 - 16
-    opc3 = (rawInstr & 0x00000040) >> 6;  // Bit 6, Bit 7 is assumed
+    opc3 = (rawInstr & 0x00000040) >> 6;  // Bit 6, Bit 7 is only used for opc1 == 0b1011
 
     switch (opc1)
     {
@@ -178,6 +178,10 @@ static int DecodeVFPInstr(uint32_t rawInstr, VFPInstruction *vfpInstr, bool thum
             vfpInstr->op = VFP_OP_VMOV_IMM;
             break;
         }
+        
+        opc3 = (rawInstr & 0x000000C0) >> 6;  // Bits 6 and 7
+        if (opc3 == 0b10) // Invalid opc3
+            return 0;
 
         switch (opc2)
         {
